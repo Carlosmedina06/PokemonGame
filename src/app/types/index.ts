@@ -11,4 +11,6 @@ export interface SpriteImage {
 
 export interface Frames {
   max: number
+  val: number
+  elapsed: number
 }
