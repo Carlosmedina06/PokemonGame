@@ -3,14 +3,23 @@ import { useRef, useEffect, useMemo } from 'react'
 
 import { Position, Frames } from './types'
 import { collisions } from './data/collisions'
+import { battleZonesData } from './data/battleZones'
 
 const Home = () => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const image = useMemo(() => new Image(), [])
-  const playerImage = useMemo(() => new Image(), [])
+  const playerDownImage = useMemo(() => new Image(), [])
+  const playerUpImage = useMemo(() => new Image(), [])
+  const playerRightImage = useMemo(() => new Image(), [])
+  const playerLeftImage = useMemo(() => new Image(), [])
+  const foregroundImage = useMemo(() => new Image(), [])
 
   image.src = '/images/Mapa.png'
-  playerImage.src = '/images/characterFront.png'
+  playerDownImage.src = '/images/characterFront.png'
+  playerUpImage.src = '/images/characterBack.png'
+  playerRightImage.src = '/images/characterRight.png'
+  playerLeftImage.src = '/images/characterLeft.png'
+  foregroundImage.src = '/images/foregroundObjects.png'
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -21,9 +30,14 @@ const Home = () => {
       canvas.height = 1040
 
       const collisionsMap = []
+      const battleZonesMap = []
 
       for (let i = 0; i < collisions.length; i += 120) {
         collisionsMap.push(collisions.slice(i, 120 + i))
+      }
+
+      for (let i = 0; i < battleZonesData.length; i += 120) {
+        battleZonesMap.push(battleZonesData.slice(i, 120 + i))
       }
 
       class Boundary {
@@ -40,7 +54,7 @@ const Home = () => {
 
         draw?() {
           if (!ctx) return
-          ctx.fillStyle = 'rgba(255, 0, 0, 0)'
+          ctx.fillStyle = 'rgba(255, 0, 0, 5)'
           ctx.fillRect(this.position.x, this.position.y, this.width, this.height)
         }
       }
@@ -66,21 +80,45 @@ const Home = () => {
         })
       })
 
+      const battleZones: Boundary[] = []
+
+      battleZonesMap.forEach((row, rowIndex) => {
+        row.forEach((col, colIndex) => {
+          if (col === 15875)
+            battleZones.push(
+              new Boundary({
+                position: {
+                  x: colIndex * Boundary.width + offset.x,
+                  y: rowIndex * Boundary.height + offset.y,
+                },
+              }),
+            )
+        })
+      })
+
       class Sprite {
         position: Position
         image: HTMLImageElement
         frames: Frames
         width: number
         height: number
-        onImageLoad: (() => void) | undefined
+        moving?: boolean
+        onImageLoad?: () => void
+        sprites?: {
+          down: HTMLImageElement
+          up: HTMLImageElement
+          right: HTMLImageElement
+          left: HTMLImageElement
+        }
 
         constructor({
           position,
           image,
-          frames = { max: 1 },
+          frames = { max: 1, val: 0, elapsed: 0 },
           width,
           height,
           onImageLoad,
+          sprites,
         }: {
           position: Position
           image: HTMLImageElement
@@ -88,6 +126,12 @@ const Home = () => {
           width?: number
           height?: number
           onImageLoad?: () => void
+          sprites?: {
+            up: HTMLImageElement
+            right: HTMLImageElement
+            left: HTMLImageElement
+            down: HTMLImageElement
+          }
         }) {
           this.position = position
           this.image = image
@@ -102,6 +146,8 @@ const Home = () => {
             if (this.onImageLoad) {
               this.onImageLoad()
             }
+            this.moving = false
+            this.sprites = sprites
           }
         }
 
@@ -109,7 +155,7 @@ const Home = () => {
           if (canvas && ctx) {
             ctx.drawImage(
               this.image,
-              0,
+              this.frames.val * this.width,
               0,
               this.image.width / this.frames.max,
               this.image.height,
@@ -118,6 +164,12 @@ const Home = () => {
               this.image.width / this.frames.max,
               this.image.height,
             )
+            if (!this.moving) return
+            if (this.frames.max > 1) this.frames.elapsed++
+            if (this.frames.elapsed % 10 === 0) {
+              if (this.frames.val < this.frames.max - 1) this.frames.val++
+              else this.frames.val = 0
+            }
           }
         }
       }
@@ -127,9 +179,17 @@ const Home = () => {
           x: canvas.width / 2 - 143 / 4 / 2,
           y: canvas.height / 2 - 55 / 2,
         },
-        image: playerImage,
+        image: playerDownImage,
         frames: {
           max: 4,
+          val: 0,
+          elapsed: 0,
+        },
+        sprites: {
+          up: playerUpImage,
+          right: playerRightImage,
+          left: playerLeftImage,
+          down: playerDownImage,
         },
       })
 
@@ -139,6 +199,14 @@ const Home = () => {
           y: offset.y,
         },
         image,
+      })
+
+      const foreground = new Sprite({
+        position: {
+          x: offset.x,
+          y: offset.y,
+        },
+        image: foregroundImage,
       })
 
       const keys = {
@@ -156,7 +224,7 @@ const Home = () => {
         },
       }
 
-      const movables = [background, ...boundaries]
+      const movables = [background, ...boundaries, foreground, ...battleZones]
 
       const objectCollides = ({ obj1, obj2 }: { obj1: Sprite; obj2: Boundary }) => {
         return (
@@ -173,11 +241,46 @@ const Home = () => {
         boundaries.forEach((boundary) => {
           if (boundary.draw) boundary.draw()
         })
-
+        battleZones.forEach((battleZone) => {
+          if (battleZone.draw) battleZone.draw()
+        })
         player.draw()
+        foreground.draw()
+
+        if (keys.w.pressed || keys.a.pressed || keys.s.pressed || keys.d.pressed) {
+          for (let i = 0; i < battleZones.length; i++) {
+            const battleZone = battleZones[i]
+            const overlappingArea =
+              (Math.min(
+                player.position.x + player.width,
+                battleZone.position.x + battleZone.width,
+              ) -
+                Math.max(player.position.x, battleZone.position.x)) *
+              (Math.min(
+                player.position.y + player.height,
+                battleZone.position.y + battleZone.height,
+              ) -
+                Math.max(player.position.y, battleZone.position.y))
+
+            if (
+              objectCollides({
+                obj1: player,
+                obj2: battleZone,
+              }) &&
+              overlappingArea > (player.width * player.height) / 2 &&
+              Math.random() < 0.01
+            ) {
+              console.log('battle not implemented yet')
+              break
+            }
+          }
+        }
         let moving = true
 
+        player.moving = false
         if (keys.w.pressed && lastKey === 'w') {
+          player.moving = true
+          if (player.sprites) player.image = player.sprites.up
           for (let i = 0; i < boundaries.length; i++) {
             const boundary = boundaries[i]
 
@@ -203,6 +306,8 @@ const Home = () => {
             })
         }
         if (keys.a.pressed && lastKey === 'a') {
+          player.moving = true
+          if (player.sprites) player.image = player.sprites.left
           for (let i = 0; i < boundaries.length; i++) {
             const boundary = boundaries[i]
 
@@ -222,12 +327,15 @@ const Home = () => {
               break
             }
           }
+
           if (moving)
             movables.forEach((movable) => {
               movable.position.x += 3
             })
         }
         if (keys.s.pressed && lastKey === 's') {
+          player.moving = true
+          if (player.sprites) player.image = player.sprites.down
           for (let i = 0; i < boundaries.length; i++) {
             const boundary = boundaries[i]
 
@@ -253,6 +361,8 @@ const Home = () => {
             })
         }
         if (keys.d.pressed && lastKey === 'd') {
+          player.moving = true
+          if (player.sprites) player.image = player.sprites.right
           for (let i = 0; i < boundaries.length; i++) {
             const boundary = boundaries[i]
 
@@ -320,7 +430,7 @@ const Home = () => {
         }
       })
     }
-  }, [image, playerImage])
+  }, [image, foregroundImage, playerUpImage, playerRightImage, playerLeftImage, playerDownImage])
 
   return (
     <div>
