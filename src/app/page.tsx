@@ -1,5 +1,6 @@
 'use client'
-import { useRef, useEffect, useMemo } from 'react'
+import { useRef, useEffect, useMemo, useState } from 'react'
+import { motion } from 'framer-motion'
 
 import { Position, Frames } from './types'
 import { collisions } from './data/collisions'
@@ -13,6 +14,11 @@ const Home = () => {
   const playerRightImage = useMemo(() => new Image(), [])
   const playerLeftImage = useMemo(() => new Image(), [])
   const foregroundImage = useMemo(() => new Image(), [])
+  const battleBackgroundImage = useMemo(() => new Image(), [])
+  const [battle, setBattle] = useState({
+    initiated: false,
+  })
+  const [fondo, setFondo] = useState(false)
 
   image.src = '/images/Mapa.png'
   playerDownImage.src = '/images/characterFront.png'
@@ -20,6 +26,7 @@ const Home = () => {
   playerRightImage.src = '/images/characterRight.png'
   playerLeftImage.src = '/images/characterLeft.png'
   foregroundImage.src = '/images/foregroundObjects.png'
+  battleBackgroundImage.src = '/images/battleBackground.png'
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -54,7 +61,7 @@ const Home = () => {
 
         draw?() {
           if (!ctx) return
-          ctx.fillStyle = 'rgba(255, 0, 0, 5)'
+          ctx.fillStyle = 'rgba(255, 0, 0, 0)'
           ctx.fillRect(this.position.x, this.position.y, this.width, this.height)
         }
       }
@@ -237,6 +244,7 @@ const Home = () => {
 
       const animate = () => {
         window.requestAnimationFrame(animate)
+
         background.draw()
         boundaries.forEach((boundary) => {
           if (boundary.draw) boundary.draw()
@@ -247,6 +255,12 @@ const Home = () => {
         player.draw()
         foreground.draw()
 
+        let moving = true
+
+        player.moving = false
+        if (battle.initiated) return
+
+        // check if player is in battle zone
         if (keys.w.pressed || keys.a.pressed || keys.s.pressed || keys.d.pressed) {
           for (let i = 0; i < battleZones.length; i++) {
             const battleZone = battleZones[i]
@@ -271,13 +285,15 @@ const Home = () => {
               Math.random() < 0.01
             ) {
               console.log('battle not implemented yet')
+              setBattle({
+                ...battle,
+                initiated: true,
+              })
               break
             }
           }
         }
-        let moving = true
 
-        player.moving = false
         if (keys.w.pressed && lastKey === 'w') {
           player.moving = true
           if (player.sprites) player.image = player.sprites.up
@@ -391,6 +407,16 @@ const Home = () => {
 
       animate()
 
+      const battleBackground = new Sprite({
+        position: { x: 0, y: 0 },
+        image: battleBackgroundImage,
+      })
+      const animateBattle = () => {
+        window.requestAnimationFrame(animateBattle)
+      }
+
+      if (battle.initiated) animateBattle()
+
       let lastKey = ''
 
       window.addEventListener('keydown', ({ key }) => {
@@ -430,11 +456,43 @@ const Home = () => {
         }
       })
     }
-  }, [image, foregroundImage, playerUpImage, playerRightImage, playerLeftImage, playerDownImage])
+  }, [
+    image,
+    foregroundImage,
+    playerUpImage,
+    playerRightImage,
+    playerLeftImage,
+    playerDownImage,
+    battle,
+    battleBackgroundImage,
+  ])
 
   return (
-    <div>
-      <canvas ref={canvasRef} height={400} width={400} />
+    <div className="inline-block relative">
+      {battle.initiated && (
+        <motion.div
+          animate={{ opacity: 1 }}
+          className="opacity-0 pointer-events-none bg-white top-0 left-0 right-0 bottom-0 absolute"
+          initial={{ opacity: 0 }}
+          transition={{ duration: 0.4, repeat: 3 }}
+          onAnimationComplete={() => {
+            setFondo(true)
+          }}
+        >
+          {fondo && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              alt="Imagen de batalla"
+              className="w-full h-full"
+              src="/images/battleBackground.png"
+            />
+          )}
+        </motion.div>
+      )}
+
+      <div>
+        <canvas ref={canvasRef} height={400} width={400} />
+      </div>
     </div>
   )
 }
