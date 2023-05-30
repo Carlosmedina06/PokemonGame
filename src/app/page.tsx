@@ -1,10 +1,13 @@
 'use client'
 import { useRef, useEffect, useMemo, useState } from 'react'
-import { motion } from 'framer-motion'
+import { gsap } from 'gsap'
 
-import { Position, Frames } from './types'
 import { collisions } from './data/collisions'
 import { battleZonesData } from './data/battleZones'
+import { Boundary, Sprite } from './class'
+import { Battle } from './components/Battle'
+import Bag from './components/Bag'
+import PokemonSelector from './components/PokemonSelector'
 
 const Home = () => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -15,9 +18,6 @@ const Home = () => {
   const playerLeftImage = useMemo(() => new Image(), [])
   const foregroundImage = useMemo(() => new Image(), [])
   const battleBackgroundImage = useMemo(() => new Image(), [])
-  const [battle, setBattle] = useState({
-    initiated: false,
-  })
   const [fondo, setFondo] = useState(false)
 
   image.src = '/images/Mapa.png'
@@ -47,25 +47,6 @@ const Home = () => {
         battleZonesMap.push(battleZonesData.slice(i, 120 + i))
       }
 
-      class Boundary {
-        static width = 48
-        static height = 48
-        position: Position
-        width: number
-        height: number
-        constructor({ position }: { position: Position }) {
-          this.position = position
-          this.width = 48
-          this.height = 48
-        }
-
-        draw?() {
-          if (!ctx) return
-          ctx.fillStyle = 'rgba(255, 0, 0, 0)'
-          ctx.fillRect(this.position.x, this.position.y, this.width, this.height)
-        }
-      }
-
       const boundaries: Boundary[] = []
 
       const offset = {
@@ -82,6 +63,7 @@ const Home = () => {
                   x: colIndex * Boundary.width + offset.x,
                   y: rowIndex * Boundary.height + offset.y,
                 },
+                ctx,
               }),
             )
         })
@@ -98,89 +80,13 @@ const Home = () => {
                   x: colIndex * Boundary.width + offset.x,
                   y: rowIndex * Boundary.height + offset.y,
                 },
+                ctx,
               }),
             )
         })
       })
 
-      class Sprite {
-        position: Position
-        image: HTMLImageElement
-        frames: Frames
-        width: number
-        height: number
-        moving?: boolean
-        onImageLoad?: () => void
-        sprites?: {
-          down: HTMLImageElement
-          up: HTMLImageElement
-          right: HTMLImageElement
-          left: HTMLImageElement
-        }
-
-        constructor({
-          position,
-          image,
-          frames = { max: 1, val: 0, elapsed: 0 },
-          width,
-          height,
-          onImageLoad,
-          sprites,
-        }: {
-          position: Position
-          image: HTMLImageElement
-          frames?: Frames
-          width?: number
-          height?: number
-          onImageLoad?: () => void
-          sprites?: {
-            up: HTMLImageElement
-            right: HTMLImageElement
-            left: HTMLImageElement
-            down: HTMLImageElement
-          }
-        }) {
-          this.position = position
-          this.image = image
-          this.frames = frames
-          this.width = width || 0
-          this.height = height || 0
-          this.onImageLoad = onImageLoad
-
-          this.image.onload = () => {
-            this.width = this.image.width / this.frames.max
-            this.height = this.image.height
-            if (this.onImageLoad) {
-              this.onImageLoad()
-            }
-            this.moving = false
-            this.sprites = sprites
-          }
-        }
-
-        draw() {
-          if (canvas && ctx) {
-            ctx.drawImage(
-              this.image,
-              this.frames.val * this.width,
-              0,
-              this.image.width / this.frames.max,
-              this.image.height,
-              this.position.x,
-              this.position.y,
-              this.image.width / this.frames.max,
-              this.image.height,
-            )
-            if (!this.moving) return
-            if (this.frames.max > 1) this.frames.elapsed++
-            if (this.frames.elapsed % 10 === 0) {
-              if (this.frames.val < this.frames.max - 1) this.frames.val++
-              else this.frames.val = 0
-            }
-          }
-        }
-      }
-
+      // Sprites
       const player = new Sprite({
         position: {
           x: canvas.width / 2 - 143 / 4 / 2,
@@ -198,6 +104,8 @@ const Home = () => {
           left: playerLeftImage,
           down: playerDownImage,
         },
+        ctx,
+        canvas,
       })
 
       const background = new Sprite({
@@ -206,6 +114,8 @@ const Home = () => {
           y: offset.y,
         },
         image,
+        canvas,
+        ctx,
       })
 
       const foreground = new Sprite({
@@ -214,8 +124,11 @@ const Home = () => {
           y: offset.y,
         },
         image: foregroundImage,
+        canvas,
+        ctx,
       })
 
+      // Keyboard press
       const keys = {
         w: {
           pressed: false,
@@ -231,8 +144,10 @@ const Home = () => {
         },
       }
 
+      // objects moving
       const movables = [background, ...boundaries, foreground, ...battleZones]
 
+      // Collisions
       const objectCollides = ({ obj1, obj2 }: { obj1: Sprite; obj2: Boundary }) => {
         return (
           obj1.position.x + obj1.width >= obj2.position.x &&
@@ -242,25 +157,33 @@ const Home = () => {
         )
       }
 
-      const animate = () => {
-        window.requestAnimationFrame(animate)
+      const battle = {
+        initiated: false,
+      }
 
+      const animate = () => {
+        const animationId = window.requestAnimationFrame(animate)
+
+        // pinto el fondo
         background.draw()
+        // pinto los boundaries
         boundaries.forEach((boundary) => {
           if (boundary.draw) boundary.draw()
         })
         battleZones.forEach((battleZone) => {
           if (battleZone.draw) battleZone.draw()
         })
+        // pinto el player
         player.draw()
+        // pinto el foreground
         foreground.draw()
 
         let moving = true
 
         player.moving = false
-        if (battle.initiated) return
 
-        // check if player is in battle zone
+        if (battle.initiated) return
+        // Battle zone encounter
         if (keys.w.pressed || keys.a.pressed || keys.s.pressed || keys.d.pressed) {
           for (let i = 0; i < battleZones.length; i++) {
             const battleZone = battleZones[i]
@@ -284,16 +207,34 @@ const Home = () => {
               overlappingArea > (player.width * player.height) / 2 &&
               Math.random() < 0.01
             ) {
-              console.log('battle not implemented yet')
-              setBattle({
-                ...battle,
-                initiated: true,
+              window.cancelAnimationFrame(animationId)
+              battle.initiated = true
+              gsap.to('#overlappingDiv', {
+                opacity: 1,
+                repeat: 3,
+                yoyo: true,
+                duration: 0.4,
+                onComplete: () => {
+                  gsap.to('#overlappingDiv', {
+                    opacity: 1,
+                    duration: 0.4,
+                    onComplete: () => {
+                      setFondo(true)
+                      // animateBattle()
+                      gsap.to('#overlappingDiv', {
+                        opacity: 0,
+                        duration: 0.4,
+                      })
+                    },
+                  })
+                },
               })
               break
             }
           }
         }
 
+        // Movimiento
         if (keys.w.pressed && lastKey === 'w') {
           player.moving = true
           if (player.sprites) player.image = player.sprites.up
@@ -405,17 +346,8 @@ const Home = () => {
         }
       }
 
+      // Iniciar animación
       animate()
-
-      const battleBackground = new Sprite({
-        position: { x: 0, y: 0 },
-        image: battleBackgroundImage,
-      })
-      const animateBattle = () => {
-        window.requestAnimationFrame(animateBattle)
-      }
-
-      if (battle.initiated) animateBattle()
 
       let lastKey = ''
 
@@ -463,36 +395,19 @@ const Home = () => {
     playerRightImage,
     playerLeftImage,
     playerDownImage,
-    battle,
     battleBackgroundImage,
   ])
 
   return (
     <div className="inline-block relative">
-      {battle.initiated && (
-        <motion.div
-          animate={{ opacity: 1 }}
-          className="opacity-0 pointer-events-none bg-white top-0 left-0 right-0 bottom-0 absolute"
-          initial={{ opacity: 0 }}
-          transition={{ duration: 0.4, repeat: 3 }}
-          onAnimationComplete={() => {
-            setFondo(true)
-          }}
-        >
-          {fondo && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              alt="Imagen de batalla"
-              className="w-full h-full"
-              src="/images/battleBackground.png"
-            />
-          )}
-        </motion.div>
-      )}
-
-      <div>
-        <canvas ref={canvasRef} height={400} width={400} />
-      </div>
+      {!fondo && <PokemonSelector />}
+      {!fondo && <Bag />}
+      <div
+        className=" bg-black top-0 right-0 bottom-0 left-0 absolute opacity-0 pointer-events-none"
+        id="overlappingDiv"
+      />
+      {fondo && <Battle />}
+      <canvas ref={canvasRef} height={1440} width={1080} />
     </div>
   )
 }
